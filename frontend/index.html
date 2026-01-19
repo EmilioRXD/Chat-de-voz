@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Chat Proximidad 3D</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Login Overlay -->
+        <div id="login-overlay" class="glass-panel">
+            <h1>Unirse al Chat</h1>
+            <p>Ingresa tus coordenadas y comienza a hablar.</p>
+            <form id="login-form">
+                <div class="input-group">
+                    <label>Usuario</label>
+                    <input type="text" id="username" placeholder="Tu nombre" required>
+                </div>
+                <div class="coord-inputs">
+                    <div class="input-group">
+                        <label>X</label>
+                        <input type="number" id="pos-x" value="0" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Y</label>
+                        <input type="number" id="pos-y" value="0" required>
+                    </div>
+                    <div class="input-group">
+                        <label>Z</label>
+                        <input type="number" id="pos-z" value="0" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary">Conectar</button>
+            </form>
+        </div>
+
+        <!-- Main Interface (Hidden by default) -->
+        <div id="main-interface" class="hidden">
+            <header class="glass-header">
+                <div class="user-info">
+                    <span id="display-name">Usuario</span>
+                    <span class="status-dot"></span>
+                </div>
+                <div class="controls">
+                    <button id="disconnect-btn" class="btn-danger">Desconectar</button>
+                </div>
+            </header>
+
+            <main class="grid-container">
+                <div class="radar-view glass-panel">
+                    <h2>Radar de Proximidad</h2>
+                    <!-- Visual representation of users could go here -->
+                    <div id="radar-canvas" class="radar-box">
+                        <div id="my-dot" class="dot my-dot"></div>
+                        <!-- Other users will be added here dynamically -->
+                    </div>
+                    <div class="coordinates-display">
+                        <p>Tu Posición: <span id="current-pos">0, 0, 0</span></p>
+                    </div>
+                    <div class="controls-update">
+                        <h3>Moverse</h3>
+                        <div class="move-controls">
+                            <button data-axis="x" data-dir="-1">← X</button>
+                            <button data-axis="x" data-dir="1">X →</button>
+                            <button data-axis="z" data-dir="-1">↑ Z</button>
+                            <button data-axis="z" data-dir="1">Z ↓</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="users-list glass-panel">
+                    <h2>Usuarios en rango</h2>
+                    <ul id="users-ul">
+                        <!-- User list items -->
+                    </ul>
+                </div>
+            </main>
+        </div>
+    </div>
+    <script type="module" src="/main.js"></script>
+</body>
+
+</html>

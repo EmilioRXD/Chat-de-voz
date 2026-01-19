@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "4010:3000"
+    environment:
+      - PORT=3000
+    networks:
+      - voice-chat-net
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "4000:80"
+    depends_on:
+      - backend
+    networks:
+      - voice-chat-net
+
+networks:
+  voice-chat-net:
+    driver: bridge
