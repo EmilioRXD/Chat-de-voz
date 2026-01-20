@@ -1,7 +1,7 @@
 import { io } from "socket.io-client";
 
 // Configuration
-const BACKEND_URL = "http://localhost:4010";
+const BACKEND_URL = `${window.location.protocol}//${window.location.hostname}:4010`;
 const MAX_DISTANCE = 100; // Max distance to hear someone
 const ICE_SERVERS = {
     iceServers: [
@@ -125,11 +125,15 @@ function connectSocket(username, x, y, z) {
         const peer = peers[data.sender];
         if (peer) {
             try {
-                await peer.connection.setRemoteDescription(new RTCSessionDescription(data.signal));
-                if (data.signal.type === 'offer') {
-                    const answer = await peer.connection.createAnswer();
-                    await peer.connection.setLocalDescription(answer);
-                    socket.emit('signal', { target: data.sender, signal: answer });
+                if (data.signal.sdp) {
+                    await peer.connection.setRemoteDescription(new RTCSessionDescription(data.signal));
+                    if (data.signal.type === 'offer') {
+                        const answer = await peer.connection.createAnswer();
+                        await peer.connection.setLocalDescription(answer);
+                        socket.emit('signal', { target: data.sender, signal: answer });
+                    }
+                } else if (data.signal.candidate) {
+                    await peer.connection.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
                 }
             } catch (e) {
                 console.error("Signal error", e);
@@ -205,29 +209,7 @@ function createPeer(targetId, username, initialData, initiator) {
     updateList();
 }
 
-// Enhance server listener to handle candidate
-const originalSignalHandler = socket.listeners('signal')[0]; // Wait, logic flow issue.
-// Let's redefine signal handler to be robust.
-socket.off('signal');
-socket.on('signal', async (data) => {
-    const peer = peers[data.sender];
-    if (!peer) return;
-
-    if (data.signal.sdp) {
-        await peer.connection.setRemoteDescription(new RTCSessionDescription(data.signal));
-        if (data.signal.type === 'offer') {
-            const answer = await peer.connection.createAnswer();
-            await peer.connection.setLocalDescription(answer);
-            socket.emit('signal', { target: data.sender, signal: answer });
-        }
-    } else if (data.signal.candidate) {
-        try {
-            await peer.connection.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-        } catch (e) {
-            console.error("Error adding candidate", e);
-        }
-    }
-});
+// Signal handling moved inside connectSocket
 
 
 // --- Audio Graph (Proximity Logic) ---
