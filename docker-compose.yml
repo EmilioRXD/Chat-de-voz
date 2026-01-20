@@ -4,16 +4,16 @@ services:
   backend:
     build: ./backend
     ports:
-      - "4010:3000"
+      - "4010:4010"
     environment:
-      - PORT=3000
+      - PORT=4010
     networks:
       - voice-chat-net
 
   frontend:
     build: ./frontend
     ports:
-      - "4000:80"
+      - "4000:4000"
     depends_on:
       - backend
     networks:

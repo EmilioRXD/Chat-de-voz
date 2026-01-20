@@ -14,7 +14,7 @@ const io = new Server(server, {
     }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4010;
 
 // State
 let users = {};
