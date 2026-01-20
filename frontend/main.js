@@ -2,7 +2,9 @@ import { io } from "socket.io-client";
 
 // Configuration
 const BACKEND_URL = undefined; // Undefined lets Socket.IO connect to the same host/port as the page
-const MAX_DISTANCE = 100; // Max distance to hear someone
+const MAX_DISTANCE = 50; // Distancia máxima de audición (50 metros)
+const MIN_DISTANCE = 5;  // Distancia donde el volumen empieza a bajar (rolloff)
+const ROLLOFF_FACTOR = 1.5; // Qué tan rápido baja el volumen (mayor = más rápido)
 const ICE_SERVERS = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -170,34 +172,6 @@ function createPeer(targetId, username, initialData, initiator) {
     pc.onicecandidate = (event) => {
         if (event.candidate) {
             console.log("Sending ICE candidate to", targetId);
-            // Note: simple signalling usually sends candidate as part of 'signal' or separate
-            // For this raw implementation we cheat and package it as 'candidate' type or re-emit signal
-            // But standard pattern:
-
-            // Actually, wait. 'signal' usually implies Description. Candidates are separate.
-            // Let's assume the 'signal' handler on server and client can handle both, or we conform.
-            // To keep it simple like simple-peer, let's just use the 'signal' event for everything?
-            // No, raw WebRTC requires careful handling.
-
-            // For robust raw WebRTC, we should stick to standard Offer/Answer/Candidate exchange.
-            // BUT, to keep code short, often candidates are sent after description.
-            // Let's hack it into one 'signal' payload type if possible, or handle specifically.
-            // Wait, my handler above `new RTCSessionDescription(data.signal)` fails for candidates.
-            // I need to separate them.
-
-            // Correct approach for raw WebRTC:
-            // 1. Exchange Descriptions
-            // 2. Exchange Candidates
-
-            // Simpler: Use a library? No, I promised native.
-            // Solution: Check `data.signal.candidate` vs `data.signal.sdp`.
-        }
-    };
-
-    // Better ICE handling
-    pc.onicecandidate = (event) => {
-        if (event.candidate) {
-            console.log("Sending ICE candidate", event.candidate);
             socket.emit('signal', { target: targetId, signal: { candidate: event.candidate } });
         }
     };
@@ -209,19 +183,18 @@ function createPeer(targetId, username, initialData, initiator) {
     pc.ontrack = (event) => {
         console.log("Received remote stream/track from", targetId);
         const remoteStream = event.streams[0];
+
+        // 1. Setup Web Audio Graph for proximity control (GainNode)
         setupAudioGraph(targetId, remoteStream);
 
-        // Debug audio track
-        const track = remoteStream.getAudioTracks()[0];
-        console.log("Track enabled:", track.enabled, "Muted:", track.muted, "ReadyState:", track.readyState);
-
-        // Fix: Attach to an HTML Audio Element to satisfy browser policy and unmute
+        // 2. Attach to hidden muted element to satisfy browser playback policies
         attachAudioStream(targetId, remoteStream);
 
-        // Also connect to Web Audio API for volume control
-        setupAudioGraph(targetId, remoteStream);
-
-        track.onunmute = () => console.log("Track UNMUTED for", targetId);
+        // Debug info
+        const track = remoteStream.getAudioTracks()[0];
+        if (track) {
+            track.onunmute = () => console.log("Track UNMUTED for", targetId);
+        }
     };
 
     if (initiator) {
@@ -288,14 +261,28 @@ function updateVolume(id) {
 
     const dist = calculateDistance(myPos, peer.position);
 
-    // Linear falloff: 1.0 at 0 dist, 0.0 at MAX_DISTANCE
-    let volume = 1 - (dist / MAX_DISTANCE);
-    if (volume < 0) volume = 0;
+    let volume = 0;
 
-    // Smooth transition
+    if (dist <= MIN_DISTANCE) {
+        // Volumen máximo si estamos muy cerca
+        volume = 1.0;
+    } else if (dist >= MAX_DISTANCE) {
+        // Silencio total si estamos fuera del rango
+        volume = 0;
+    } else {
+        // Cálculo gradual: 1.0 en MIN_DISTANCE, bajando hasta 0.0 en MAX_DISTANCE
+        // Usamos una fórmula de potencia para una caída más natural (exponencial)
+        const normalizedDist = (dist - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE);
+        volume = Math.pow(1 - normalizedDist, ROLLOFF_FACTOR);
+    }
+
+    // Limitar entre 0 y 1 para seguridad
+    volume = Math.max(0, Math.min(1, volume));
+
+    // Aplicar con suavizado de 0.1s para evitar "clics" de audio
     peer.gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
 
-    updateRadarVisuals(); // Update visual distance too
+    updateRadarVisuals();
 }
 
 function updateAllVolumes() {
@@ -366,8 +353,8 @@ function attachAudioStream(id, stream) {
         audioEl = document.createElement('audio');
         audioEl.id = `audio-${id}`;
         audioEl.autoplay = true;
+        audioEl.muted = true; // IMPORTANT: Mute it so we don't hear double audio
         audioEl.playsInline = true; // Important for iOS
-        // audioEl.controls = true; // Debug: unhide to see controls
         audioEl.style.display = 'none';
         document.body.appendChild(audioEl);
     }
