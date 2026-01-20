@@ -6,7 +6,11 @@ const MAX_DISTANCE = 100; // Max distance to hear someone
 const ICE_SERVERS = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        {
+            urls: 'turn:voice.scape.nexus:3478',
+            username: 'uservideo',
+            credential: 'videopassword'
+        }
     ]
 };
 

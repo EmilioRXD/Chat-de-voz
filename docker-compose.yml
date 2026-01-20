@@ -49,6 +49,42 @@ services:
       - traefik.http.routers.minecraft-voice-ewtjts-5-websecure.service=minecraft-voice-ewtjts-5-websecure
       - traefik.http.routers.minecraft-voice-ewtjts-5-websecure.tls.certresolver=letsencrypt
 
+  coturn:
+    image: coturn/coturn:latest
+    restart: always
+    # network_mode: host removed to avoid conflict with networks
+    # Using bridge mode with mapped ports below
+    # If network_mode: host is not option (e.g. strict dokploy/portainer env), we must map ports explicitly.
+    # Given the user context (Dokploy/VPS), using explicit ports is safer for management than host mode which hijacks everything.
+    # Let's use standard bridge mode with mapped ports for better control unless performance dictates otherwise.
+    # Correction: TURN usually needs a huge UDP range. Mapping 1000 ports in docker-proxy is heavy. 
+    # But for a small chat, mapping a smaller range is fine.
+    
+    # REVISED STRATEGY: Use standard ports but mapped.
+    # network_mode: host <-- Let's stick to bridge for cleaner deployment in Dokploy unless it fails.
+    
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-49162:49152-49162/udp" # Small range for testing (10 ports = 10 streams approx)
+    volumes:
+      - ./turnusers.txt:/etc/coturn/turnusers.txt
+    command: 
+      - -n 
+      - --log-file=stdout 
+      - --min-port=49152 
+      - --max-port=49162 
+      - --realm=voice.scape.nexus 
+      - --external-ip=voice.scape.nexus
+      - --user=uservideo:videopassword # Fallback if file fails, or just use command line
+      - --lt-cred-mech
+      - --fingerprint
+      - --no-cli
+    networks:
+      - voice-chat-net
+      - dokploy-network
+
+
 networks:
   voice-chat-net:
     driver: bridge

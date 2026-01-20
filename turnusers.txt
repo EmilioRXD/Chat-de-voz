@@ -1,0 +1,4 @@
+# Coturn User Configuration
+# Format: username:password:realm:authorized
+# We use a static user for simplicity in this setup.
+user=uservideo:videopassword
