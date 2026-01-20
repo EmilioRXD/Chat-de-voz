@@ -1,7 +1,7 @@
 import { io } from "socket.io-client";
 
 // Configuration
-const BACKEND_URL = `${window.location.protocol}//${window.location.hostname}:4010`;
+const BACKEND_URL = undefined; // Undefined lets Socket.IO connect to the same host/port as the page
 const MAX_DISTANCE = 100; // Max distance to hear someone
 const ICE_SERVERS = {
     iceServers: [
@@ -53,6 +53,14 @@ disconnectBtn.addEventListener('click', () => {
     location.reload();
 });
 
+document.getElementById('test-audio-btn').addEventListener('click', () => {
+    if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().then(() => console.log("Resumed by button"));
+    }
+    // Also try to play all audio elements
+    document.querySelectorAll('audio').forEach(el => el.play());
+});
+
 // Movement Controls
 document.querySelectorAll('.move-controls button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -72,8 +80,14 @@ document.querySelectorAll('.move-controls button').forEach(btn => {
 // --- Audio & WebRTC ---
 
 async function initAudio() {
-    myStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+        myStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        console.log("Microphone access granted");
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log("AudioContext state:", audioContext.state);
+    } catch (e) {
+        console.error("Error getting user media:", e);
+    }
 }
 
 function connectSocket(username, x, y, z) {
@@ -151,6 +165,7 @@ function createPeer(targetId, username, initialData, initiator) {
     // Handle ICE
     pc.onicecandidate = (event) => {
         if (event.candidate) {
+            console.log("Sending ICE candidate to", targetId);
             // Note: simple signalling usually sends candidate as part of 'signal' or separate
             // For this raw implementation we cheat and package it as 'candidate' type or re-emit signal
             // But standard pattern:
@@ -178,14 +193,31 @@ function createPeer(targetId, username, initialData, initiator) {
     // Better ICE handling
     pc.onicecandidate = (event) => {
         if (event.candidate) {
+            console.log("Sending ICE candidate", event.candidate);
             socket.emit('signal', { target: targetId, signal: { candidate: event.candidate } });
         }
     };
 
+    pc.oniceconnectionstatechange = () => {
+        console.log("ICE Connection State with " + targetId + ":", pc.iceConnectionState);
+    };
+
     pc.ontrack = (event) => {
-        console.log("Received remote stream/track");
+        console.log("Received remote stream/track from", targetId);
         const remoteStream = event.streams[0];
         setupAudioGraph(targetId, remoteStream);
+
+        // Debug audio track
+        const track = remoteStream.getAudioTracks()[0];
+        console.log("Track enabled:", track.enabled, "Muted:", track.muted, "ReadyState:", track.readyState);
+
+        // Fix: Attach to an HTML Audio Element to satisfy browser policy and unmute
+        attachAudioStream(targetId, remoteStream);
+
+        // Also connect to Web Audio API for volume control
+        setupAudioGraph(targetId, remoteStream);
+
+        track.onunmute = () => console.log("Track UNMUTED for", targetId);
     };
 
     if (initiator) {
@@ -226,6 +258,24 @@ function setupAudioGraph(id, stream) {
 
     peers[id].gainNode = gainNode;
     updateVolume(id);
+
+    // Ensure AudioContext is running (mobile requires user interaction)
+    if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => console.log("AudioContext resumed"));
+    }
+
+    // Debug output
+    const analyser = audioContext.createAnalyser();
+    gainNode.connect(analyser);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const checkAudio = () => {
+        analyser.getByteFrequencyData(dataArray);
+        const sum = dataArray.reduce((a, b) => a + b, 0);
+        if (sum > 0) console.log(`Audio detecting from ${id}: level ${sum}`);
+        if (peers[id]) requestAnimationFrame(checkAudio);
+    };
+    // Uncomment to debug raw audio levels if needed
+    // checkAudio();
 }
 
 function updateVolume(id) {
@@ -301,4 +351,24 @@ function updateRadarVisuals() {
             radarCanvas.appendChild(dot);
         }
     });
+}
+
+// --- Audio Playback Helpers ---
+// Create a hidden audio element for each peer to ensure playback policy is satisfied
+// Web Audio API alone sometimes gets suspended or tracks stay muted unless attached to an element
+function attachAudioStream(id, stream) {
+    let audioEl = document.getElementById(`audio-${id}`);
+    if (!audioEl) {
+        audioEl = document.createElement('audio');
+        audioEl.id = `audio-${id}`;
+        audioEl.autoplay = true;
+        audioEl.playsInline = true; // Important for iOS
+        // audioEl.controls = true; // Debug: unhide to see controls
+        audioEl.style.display = 'none';
+        document.body.appendChild(audioEl);
+    }
+    audioEl.srcObject = stream;
+
+    // Attempt play
+    audioEl.play().catch(e => console.log("Autoplay blocked for", id, e));
 }

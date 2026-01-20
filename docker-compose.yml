@@ -1,24 +1,56 @@
-version: '3.8'
-
+version: "3.8"
 services:
   backend:
     build: ./backend
     ports:
-      - "4010:4010"
+      - 4010:4010
     environment:
       - PORT=4010
     networks:
       - voice-chat-net
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # Define router for backend socket.io (HTTPS)
+      - traefik.http.routers.voice-backend-secure.rule=Host(`voice.scape.nexus`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.voice-backend-secure.entrypoints=websecure
+      - traefik.http.routers.voice-backend-secure.tls.certresolver=letsencrypt
+      - traefik.http.routers.voice-backend-secure.service=voice-backend-service
+      # Define router for backend socket.io (HTTP redirect)
+      - traefik.http.routers.voice-backend.rule=Host(`voice.scape.nexus`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.voice-backend.entrypoints=web
+      - traefik.http.routers.voice-backend.service=voice-backend-service
+      # Service definition
+      - traefik.http.services.voice-backend-service.loadbalancer.server.port=4010
+      - traefik.http.services.voice-backend-service.loadbalancer.sticky.cookie=true
+      - traefik.http.services.voice-backend-service.loadbalancer.sticky.cookie.secure=true
 
   frontend:
     build: ./frontend
     ports:
-      - "4000:4000"
+      - 4000:4000
     depends_on:
       - backend
     networks:
       - voice-chat-net
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.minecraft-voice-ewtjts-5-web.rule=Host(`voice.scape.nexus`)
+      - traefik.http.routers.minecraft-voice-ewtjts-5-web.entrypoints=web
+      - traefik.http.services.minecraft-voice-ewtjts-5-web.loadbalancer.server.port=4000
+      - traefik.http.routers.minecraft-voice-ewtjts-5-web.service=minecraft-voice-ewtjts-5-web
+      - traefik.http.routers.minecraft-voice-ewtjts-5-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.minecraft-voice-ewtjts-5-websecure.rule=Host(`voice.scape.nexus`)
+      - traefik.http.routers.minecraft-voice-ewtjts-5-websecure.entrypoints=websecure
+      - traefik.http.services.minecraft-voice-ewtjts-5-websecure.loadbalancer.server.port=4000
+      - traefik.http.routers.minecraft-voice-ewtjts-5-websecure.service=minecraft-voice-ewtjts-5-websecure
+      - traefik.http.routers.minecraft-voice-ewtjts-5-websecure.tls.certresolver=letsencrypt
 
 networks:
   voice-chat-net:
     driver: bridge
+  dokploy-network:
+    external: true
