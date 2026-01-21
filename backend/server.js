@@ -91,6 +91,7 @@ io.on('connection', (socket) => {
 });
 
 // Endpoint para recibir datos del addon de Minecraft
+// Endpoint para recibir datos del addon de Minecraft
 app.post('/minecraft-data', (req, res) => {
     minecraftData = req.body;
     console.log('📦 Minecraft data received:', minecraftData.players?.length || 0, 'players');

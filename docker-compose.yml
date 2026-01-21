@@ -13,12 +13,12 @@ services:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
       # Define router for backend socket.io (HTTPS)
-      - traefik.http.routers.voice-backend-secure.rule=Host(`voice.scape.nexus`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.voice-backend-secure.rule=Host(`voice.scape.nexus`) && (PathPrefix(`/socket.io`) || PathPrefix(`/minecraft-data`))
       - traefik.http.routers.voice-backend-secure.entrypoints=websecure
       - traefik.http.routers.voice-backend-secure.tls.certresolver=letsencrypt
       - traefik.http.routers.voice-backend-secure.service=voice-backend-service
       # Define router for backend socket.io (HTTP redirect)
-      - traefik.http.routers.voice-backend.rule=Host(`voice.scape.nexus`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.voice-backend.rule=Host(`voice.scape.nexus`) && (PathPrefix(`/socket.io`) || PathPrefix(`/minecraft-data`))
       - traefik.http.routers.voice-backend.entrypoints=web
       - traefik.http.routers.voice-backend.service=voice-backend-service
       # Service definition
