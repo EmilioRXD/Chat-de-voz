@@ -5,6 +5,7 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
+app.use(express.json()); // Para parsear JSON en POST requests
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -18,6 +19,8 @@ const PORT = process.env.PORT || 4010;
 
 // State
 let users = {};
+let minecraftData = null; // Datos del addon de Minecraft
+const voiceStates = new Map(); // { gamertag: { isTalking, volume } }
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -58,6 +61,17 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Voice Detection (VAD)
+    socket.on('voice-detection', (data) => {
+        // data: { gamertag, isTalking, volume }
+        voiceStates.set(data.gamertag, {
+            isTalking: data.isTalking,
+            volume: data.volume
+        });
+
+        console.log(`🎤 ${data.gamertag}: ${data.isTalking ? `TALKING (${data.volume.toFixed(1)}dB)` : 'SILENT'}`);
+    });
+
     // WebRTC Signaling
     socket.on('signal', (data) => {
         // data: { target: targetSocketId, signal: signalData }
@@ -73,6 +87,43 @@ io.on('connection', (socket) => {
             delete users[socket.id];
             io.emit('user-left', socket.id);
         }
+    });
+});
+
+// Endpoint para recibir datos del addon de Minecraft
+app.post('/minecraft-data', (req, res) => {
+    minecraftData = req.body;
+    console.log('📦 Minecraft data received:', minecraftData.players?.length || 0, 'players');
+
+    // Broadcast a todos los clientes conectados vía Socket.IO
+    io.emit('minecraft-update', {
+        players: minecraftData.players,
+        config: minecraftData.config
+    });
+
+    // Preparar respuesta para el addon con estados de voz
+    const voiceStatesArray = Array.from(voiceStates.entries()).map(([gamertag, state]) => ({
+        gamertag,
+        isTalking: state.isTalking,
+        volume: state.volume
+    }));
+
+    // Determinar estados de conexión (quién está conectado al chat de voz)
+    const connectionStates = minecraftData.players?.map(player => {
+        // Buscar si el jugador está conectado al sistema de voz (Socket.IO)
+        const isConnected = Object.values(users).some(u => u.username === player.name);
+        return {
+            gamertag: player.name,
+            isConnected,
+            inMinecraftWorld: true
+        };
+    }) || [];
+
+    // Responder al addon de Minecraft
+    res.json({
+        success: true,
+        voiceStates: voiceStatesArray,
+        connectionStates
     });
 });
 

@@ -249,56 +249,162 @@ button:active {
     display: inline-block;
 }
 
-/* Toggle Buttons */
+/* Toggle Buttons y Controles de Header */
 .controls {
     display: flex;
     gap: 0.5rem;
     align-items: center;
 }
 
-.toggle-btn {
-    width: 42px;
-    height: 42px;
+#test-audio-btn {
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    color: #0f172a;
+    width: auto;
+}
+
+
+/* Minecraft Context & Status */
+.minecraft-status {
+    width: 100%;
+    padding: 1rem;
+    border-radius: 12px;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.minecraft-status.connected {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.status-disconnected {
+    color: #fbbf24;
+}
+
+.status-connected {
+    color: #10b981;
+}
+
+.mic-selector-container {
+    width: 100%;
+    margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: left;
+}
+
+.mic-selector-container label {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+    margin-left: 0.25rem;
+}
+
+.mic-selector {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(15, 23, 42, 0.5);
+    color: white;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+/* Peer Items with Skins */
+.peer-item {
     display: flex;
     align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid var(--glass-border);
-    border-radius: 50%;
-    font-size: 1.2rem;
-    padding: 0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    gap: 1rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: transform 0.2s, background 0.2s;
+    width: 100%;
 }
 
-.toggle-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
+.peer-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #1e293b;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
 }
 
-.toggle-btn.active {
-    background: var(--danger-color);
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
-    border-color: rgba(255, 255, 255, 0.3);
+.peer-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    image-rendering: pixelated;
 }
 
-.btn-mute-peer {
-    width: auto;
-    padding: 4px 10px;
-    font-size: 0.8rem;
-    background: rgba(255, 255, 255, 0.1);
+.peer-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    text-align: left;
+}
+
+.peer-stats {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.peer-dist {
+    font-size: 0.85rem;
     color: #94a3b8;
-    border: 1px solid var(--glass-border);
-    margin-left: 10px;
 }
 
-.btn-mute-peer:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--danger-color);
+.peer-indicators {
+    font-size: 1.25rem;
+    opacity: 0.8;
 }
 
-.btn-mute-peer.active {
-    background: var(--danger-color);
+/* Voice Detection Indicator */
+.voice-indicator {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--primary-color);
     color: white;
+    padding: 0.8rem 1.8rem;
+    border-radius: 100px;
+    font-weight: 600;
+    box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.5);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    z-index: 1000;
+    animation: bounce 2s infinite;
 }
+
+@keyframes bounce {
+
+    0%,
+    100% {
+        transform: translate(-50%, 0);
+    }
+
+    50% {
+        transform: translate(-50%, -5px);
+    }
+}
+
 
 @keyframes fadeIn {
     from {

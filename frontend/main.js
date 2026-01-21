@@ -1,8 +1,9 @@
 import { io } from "socket.io-client";
+import { VoiceDetector } from "./VoiceDetector.js";
 
 // Configuration
 const BACKEND_URL = undefined; // Undefined lets Socket.IO connect to the same host/port as the page
-const MAX_DISTANCE = 50; // Distancia máxima de audición (50 metros)
+let MAX_DISTANCE = 50; // Distancia máxima de audición (50 metros) - ahora controlado por Minecraft
 const MIN_DISTANCE = 5;  // Distancia donde el volumen empieza a bajar (rolloff)
 const ROLLOFF_FACTOR = 1.5; // Qué tan rápido baja el volumen (mayor = más rápido)
 const ICE_SERVERS = {
@@ -20,11 +21,14 @@ const ICE_SERVERS = {
 let socket;
 let myStream;
 let myPos = { x: 0, y: 0, z: 0 };
-let peers = {}; // { socketId: { connection, gainNode, position } }
+let peers = {}; // { socketId: { connection, gainNode, position, username, customVolume } }
 let audioContext;
-let isMuted = false;
-let isDeafened = false;
-let mutedPeers = new Set();
+
+// Minecraft integration
+let minecraftData = null;
+let voiceDetector = null;
+let myUsername = '';
+let isConnectedToMinecraft = false;
 
 // Elements
 const loginOverlay = document.getElementById('login-overlay');
@@ -34,6 +38,10 @@ const radarCanvas = document.getElementById('radar-canvas');
 const usersUl = document.getElementById('users-ul');
 const currentPosSpan = document.getElementById('current-pos');
 const disconnectBtn = document.getElementById('disconnect-btn');
+const minecraftStatusEl = document.getElementById('minecraft-status');
+const voiceIndicatorEl = document.getElementById('voice-indicator');
+const voiceDbSpan = document.getElementById('voice-db');
+const micSelector = document.getElementById('mic-selector');
 
 // --- Initialization ---
 
@@ -44,8 +52,11 @@ loginForm.addEventListener('submit', async (e) => {
     const y = parseFloat(document.getElementById('pos-y').value);
     const z = parseFloat(document.getElementById('pos-z').value);
 
+    myUsername = username;
+
     try {
         await initAudio();
+        await loadMicrophones();
         connectSocket(username, x, y, z);
         myPos = { x, y, z };
         updateMyPositionUI();
@@ -70,25 +81,6 @@ document.getElementById('test-audio-btn').addEventListener('click', () => {
     document.querySelectorAll('audio').forEach(el => el.play());
 });
 
-const muteBtn = document.getElementById('toggle-mute-btn');
-const deafenBtn = document.getElementById('toggle-deafen-btn');
-
-muteBtn.addEventListener('click', () => {
-    isMuted = !isMuted;
-    if (myStream) {
-        myStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
-    }
-    muteBtn.classList.toggle('active', isMuted);
-    muteBtn.innerText = isMuted ? '🔇' : '🎤';
-});
-
-deafenBtn.addEventListener('click', () => {
-    isDeafened = !isDeafened;
-    deafenBtn.classList.toggle('active', isDeafened);
-    deafenBtn.innerText = isDeafened ? '🔇' : '🎧';
-    updateAllVolumes();
-});
-
 // Movement Controls
 document.querySelectorAll('.move-controls button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -97,7 +89,7 @@ document.querySelectorAll('.move-controls button').forEach(btn => {
         const step = 5;
 
         if (axis === 'x') myPos.x += dir * step;
-        if (axis === 'z') myPos.z += dir * step; // Using Z mostly for 2D radar visual, but logic supports 3D
+        if (axis === 'z') myPos.z += dir * step;
 
         updateMyPositionUI();
         socket.emit('move', myPos);
@@ -109,12 +101,36 @@ document.querySelectorAll('.move-controls button').forEach(btn => {
 
 async function initAudio() {
     try {
-        myStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        console.log("Microphone access granted");
+        myStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            },
+            video: false
+        });
+
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        console.log("AudioContext state:", audioContext.state);
+
+        // Inicializar VoiceDetector
+        voiceDetector = new VoiceDetector(myStream, (isTalking, volumeDb) => {
+            // Enviar al servidor
+            if (socket && myUsername) {
+                socket.emit('voice-detection', {
+                    gamertag: myUsername,
+                    isTalking,
+                    volume: volumeDb
+                });
+            }
+
+            // Actualizar UI local
+            updateVoiceIndicator(isTalking, volumeDb);
+        });
+
+        console.log("✓ Audio initialized with voice detection");
     } catch (e) {
         console.error("Error getting user media:", e);
+        throw e;
     }
 }
 
@@ -181,6 +197,30 @@ function connectSocket(username, x, y, z) {
                 console.error("Signal error", e);
             }
         }
+    });
+    // Escuchar actualizaciones de Minecraft
+    socket.on('minecraft-update', (data) => {
+        minecraftData = data;
+        console.log('📦 Minecraft update:', data.players?.length || 0, 'players');
+
+        const myPlayer = data.players?.find(p => p.name === myUsername);
+
+        if (myPlayer) {
+            isConnectedToMinecraft = true;
+            applyMinecraftSettings(myPlayer.data);
+            updateMinecraftStatus(true);
+        } else {
+            isConnectedToMinecraft = false;
+            muteAllAudio();
+            updateMinecraftStatus(false);
+        }
+
+        if (data.config?.maxDistance) {
+            MAX_DISTANCE = data.config.maxDistance;
+            updateAllVolumes();
+        }
+
+        updateList();
     });
 }
 
@@ -283,8 +323,8 @@ function updateVolume(id) {
 
     let volume = 0;
 
-    // Solo calcular volumen si NO estamos esordecidos y NO hemos muteado a este par específico
-    if (!isDeafened && !mutedPeers.has(id)) {
+    // Solo calcular volumen si estamos conectados a Minecraft
+    if (isConnectedToMinecraft) {
         const dist = calculateDistance(myPos, peer.position);
 
         if (dist <= MIN_DISTANCE) {
@@ -295,6 +335,10 @@ function updateVolume(id) {
             const normalizedDist = (dist - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE);
             volume = Math.pow(1 - normalizedDist, ROLLOFF_FACTOR);
         }
+
+        // Aplicar volumen personalizado desde Minecraft
+        const customVolume = peer.customVolume ?? 1.0;
+        volume *= customVolume;
     }
 
     volume = Math.max(0, Math.min(1, volume));
@@ -326,31 +370,29 @@ function updateList() {
     usersUl.innerHTML = '';
     Object.keys(peers).forEach(id => {
         const peer = peers[id];
-        const li = document.createElement('li');
         const dist = calculateDistance(myPos, peer.position).toFixed(1);
 
-        const isMutedPeer = mutedPeers.has(id);
+        // Generar URL de skin de Minecraft
+        const skinUrl = `https://mc-api.io/render/face/${encodeURIComponent(peer.username)}/bedrock`;
+
+        const li = document.createElement('li');
+        li.className = 'peer-item';
 
         li.innerHTML = `
-            <div class="peer-item-info">
-                <strong>${peer.username}</strong>
-                <span class="peer-dist">(${dist}m)</span>
+            <div class="peer-avatar">
+                <img src="${skinUrl}" alt="${peer.username}" 
+                     onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2232%22 height=%2232%22%3E%3Crect fill=%22%23888%22 width=%2232%22 height=%2232%22/%3E%3C/svg%3E'">
             </div>
-            <button class="btn-mute-peer ${isMutedPeer ? 'active' : ''}" data-id="${id}">
-                ${isMutedPeer ? 'Unmute' : 'Mute'}
-            </button>
+            <div class="peer-info">
+                <strong>${peer.username}</strong>
+                <div class="peer-stats">
+                    <span class="peer-dist">📍 ${dist}m</span>
+                </div>
+            </div>
+            <div class="peer-indicators">
+                ${isConnectedToMinecraft ? '🎮' : ''}
+            </div>
         `;
-
-        li.querySelector('button').addEventListener('click', (e) => {
-            const peerId = e.target.dataset.id;
-            if (mutedPeers.has(peerId)) {
-                mutedPeers.delete(peerId);
-            } else {
-                mutedPeers.add(peerId);
-            }
-            updateList();
-            updateVolume(peerId);
-        });
 
         usersUl.appendChild(li);
     });
@@ -405,3 +447,135 @@ function attachAudioStream(id, stream) {
     // Attempt play
     audioEl.play().catch(e => console.log("Autoplay blocked for", id, e));
 }
+function applyMinecraftSettings(playerData) {
+    if (myStream) {
+        myStream.getAudioTracks().forEach(track => {
+            track.enabled = !playerData.isMuted;
+        });
+    }
+
+    if (playerData.isDeafened) {
+        muteAllAudio();
+    } else {
+        Object.keys(peers).forEach(id => {
+            const peer = peers[id];
+            const customVol = playerData.customVolumes?.[peer.username] ?? 1.0;
+            peer.customVolume = customVol;
+            updateVolume(id);
+        });
+    }
+}
+
+function muteAllAudio() {
+    Object.keys(peers).forEach(id => {
+        if (peers[id].gainNode) {
+            peers[id].gainNode.gain.setTargetAtTime(0, audioContext.currentTime, 0.1);
+        }
+    });
+}
+
+function updateMinecraftStatus(connected) {
+    if (minecraftStatusEl) {
+        const disconnectedSpan = minecraftStatusEl.querySelector('.status-disconnected');
+        const connectedSpan = minecraftStatusEl.querySelector('.status-connected');
+
+        if (connected) {
+            disconnectedSpan?.classList.add('hidden');
+            connectedSpan?.classList.remove('hidden');
+            minecraftStatusEl.classList.add('connected');
+        } else {
+            disconnectedSpan?.classList.remove('hidden');
+            connectedSpan?.classList.add('hidden');
+            minecraftStatusEl.classList.remove('connected');
+        }
+    }
+}
+
+function updateVoiceIndicator(isTalking, volumeDb) {
+    if (voiceIndicatorEl && voiceDbSpan) {
+        if (isTalking) {
+            voiceIndicatorEl.classList.remove('hidden');
+            voiceDbSpan.innerText = volumeDb.toFixed(1);
+        } else {
+            voiceIndicatorEl.classList.add('hidden');
+        }
+    }
+}
+
+async function loadMicrophones() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(d => d.kind === 'audioinput');
+
+        if (micSelector) {
+            micSelector.innerHTML = '';
+            audioInputs.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.textContent = device.label || `Microphone ${micSelector.length + 1}`;
+                micSelector.appendChild(option);
+            });
+
+            micSelector.removeEventListener('change', onMicChange);
+            micSelector.addEventListener('change', onMicChange);
+        }
+    } catch (e) {
+        console.error("Error loading microphones:", e);
+    }
+}
+
+async function onMicChange(e) {
+    await changeMicrophone(e.target.value);
+}
+
+async function changeMicrophone(deviceId) {
+    console.log('🎤 Changing microphone context to:', deviceId);
+
+    if (myStream) {
+        myStream.getTracks().forEach(t => t.stop());
+    }
+
+    try {
+        myStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                deviceId: deviceId ? { exact: deviceId } : undefined,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+
+        if (voiceDetector) voiceDetector.dispose();
+
+        voiceDetector = new VoiceDetector(myStream, (isTalking, volumeDb) => {
+            if (socket && myUsername) {
+                socket.emit('voice-detection', {
+                    gamertag: myUsername,
+                    isTalking,
+                    volume: volumeDb
+                });
+            }
+            updateVoiceIndicator(isTalking, volumeDb);
+        });
+
+        Object.values(peers).forEach(peer => {
+            const senders = peer.connection.getSenders();
+            const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
+            if (audioSender) {
+                audioSender.replaceTrack(myStream.getAudioTracks()[0]);
+            }
+        });
+
+        console.log('✓ Microphone updated successfully');
+    } catch (e) {
+        console.error("Error changing microphone:", e);
+        alert("Error al cambiar de micrófono.");
+    }
+}
+
+// Ensure AudioContext starts correctly
+document.addEventListener('click', () => {
+    if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+}, { once: true });
