@@ -22,6 +22,9 @@ let myStream;
 let myPos = { x: 0, y: 0, z: 0 };
 let peers = {}; // { socketId: { connection, gainNode, position } }
 let audioContext;
+let isMuted = false;
+let isDeafened = false;
+let mutedPeers = new Set();
 
 // Elements
 const loginOverlay = document.getElementById('login-overlay');
@@ -65,6 +68,25 @@ document.getElementById('test-audio-btn').addEventListener('click', () => {
     }
     // Also try to play all audio elements
     document.querySelectorAll('audio').forEach(el => el.play());
+});
+
+const muteBtn = document.getElementById('toggle-mute-btn');
+const deafenBtn = document.getElementById('toggle-deafen-btn');
+
+muteBtn.addEventListener('click', () => {
+    isMuted = !isMuted;
+    if (myStream) {
+        myStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
+    }
+    muteBtn.classList.toggle('active', isMuted);
+    muteBtn.innerText = isMuted ? '🔇' : '🎤';
+});
+
+deafenBtn.addEventListener('click', () => {
+    isDeafened = !isDeafened;
+    deafenBtn.classList.toggle('active', isDeafened);
+    deafenBtn.innerText = isDeafened ? '🔇' : '🎧';
+    updateAllVolumes();
 });
 
 // Movement Controls
@@ -259,27 +281,23 @@ function updateVolume(id) {
     const peer = peers[id];
     if (!peer || !peer.gainNode) return;
 
-    const dist = calculateDistance(myPos, peer.position);
-
     let volume = 0;
 
-    if (dist <= MIN_DISTANCE) {
-        // Volumen máximo si estamos muy cerca
-        volume = 1.0;
-    } else if (dist >= MAX_DISTANCE) {
-        // Silencio total si estamos fuera del rango
-        volume = 0;
-    } else {
-        // Cálculo gradual: 1.0 en MIN_DISTANCE, bajando hasta 0.0 en MAX_DISTANCE
-        // Usamos una fórmula de potencia para una caída más natural (exponencial)
-        const normalizedDist = (dist - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE);
-        volume = Math.pow(1 - normalizedDist, ROLLOFF_FACTOR);
+    // Solo calcular volumen si NO estamos esordecidos y NO hemos muteado a este par específico
+    if (!isDeafened && !mutedPeers.has(id)) {
+        const dist = calculateDistance(myPos, peer.position);
+
+        if (dist <= MIN_DISTANCE) {
+            volume = 1.0;
+        } else if (dist >= MAX_DISTANCE) {
+            volume = 0;
+        } else {
+            const normalizedDist = (dist - MIN_DISTANCE) / (MAX_DISTANCE - MIN_DISTANCE);
+            volume = Math.pow(1 - normalizedDist, ROLLOFF_FACTOR);
+        }
     }
 
-    // Limitar entre 0 y 1 para seguridad
     volume = Math.max(0, Math.min(1, volume));
-
-    // Aplicar con suavizado de 0.1s para evitar "clics" de audio
     peer.gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
 
     updateRadarVisuals();
@@ -306,10 +324,34 @@ function updateMyPositionUI() {
 
 function updateList() {
     usersUl.innerHTML = '';
-    Object.values(peers).forEach(peer => {
+    Object.keys(peers).forEach(id => {
+        const peer = peers[id];
         const li = document.createElement('li');
         const dist = calculateDistance(myPos, peer.position).toFixed(1);
-        li.innerHTML = `<span>${peer.username}</span> <span style="opacity:0.6; font-size:0.8rem">Dist: ${dist}m</span>`;
+
+        const isMutedPeer = mutedPeers.has(id);
+
+        li.innerHTML = `
+            <div class="peer-item-info">
+                <strong>${peer.username}</strong>
+                <span class="peer-dist">(${dist}m)</span>
+            </div>
+            <button class="btn-mute-peer ${isMutedPeer ? 'active' : ''}" data-id="${id}">
+                ${isMutedPeer ? 'Unmute' : 'Mute'}
+            </button>
+        `;
+
+        li.querySelector('button').addEventListener('click', (e) => {
+            const peerId = e.target.dataset.id;
+            if (mutedPeers.has(peerId)) {
+                mutedPeers.delete(peerId);
+            } else {
+                mutedPeers.add(peerId);
+            }
+            updateList();
+            updateVolume(peerId);
+        });
+
         usersUl.appendChild(li);
     });
 }
