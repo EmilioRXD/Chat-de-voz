@@ -34,7 +34,7 @@ let isConnectedToMinecraft = false;
 const loginOverlay = document.getElementById('login-overlay');
 const mainInterface = document.getElementById('main-interface');
 const loginForm = document.getElementById('login-form');
-const radarCanvas = document.getElementById('radar-canvas');
+
 const usersUl = document.getElementById('users-ul');
 const currentPosSpan = document.getElementById('current-pos');
 const disconnectBtn = document.getElementById('disconnect-btn');
@@ -48,16 +48,22 @@ const micSelector = document.getElementById('mic-selector');
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = document.getElementById('username').value;
-    const x = parseFloat(document.getElementById('pos-x').value);
-    const y = parseFloat(document.getElementById('pos-y').value);
-    const z = parseFloat(document.getElementById('pos-z').value);
+    // Coordinates controlled by Minecraft now
+    const x = 0;
+    const y = 0;
+    const z = 0;
 
     myUsername = username;
 
     try {
         await initAudio();
         await loadMicrophones();
-        connectSocket(username, x, y, z);
+        await initAudio();
+        await loadMicrophones();
+        connectSocket(username);
+        // myPos will wait for Minecraft data
+
+
         myPos = { x, y, z };
         updateMyPositionUI();
 
@@ -81,21 +87,7 @@ document.getElementById('test-audio-btn').addEventListener('click', () => {
     document.querySelectorAll('audio').forEach(el => el.play());
 });
 
-// Movement Controls
-document.querySelectorAll('.move-controls button').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const axis = btn.dataset.axis;
-        const dir = parseInt(btn.dataset.dir);
-        const step = 5;
-
-        if (axis === 'x') myPos.x += dir * step;
-        if (axis === 'z') myPos.z += dir * step;
-
-        updateMyPositionUI();
-        socket.emit('move', myPos);
-        updateAllVolumes();
-    });
-});
+// Movement Controls Removed (Controlled by Minecraft)
 
 // --- Audio & WebRTC ---
 
@@ -134,13 +126,14 @@ async function initAudio() {
     }
 }
 
-function connectSocket(username, x, y, z) {
+function connectSocket(username) {
     socket = io(BACKEND_URL);
 
     socket.on('connect', () => {
         console.log('Connected to signaling server');
-        socket.emit('join', { username, x, y, z });
+        socket.emit('join', { username });
     });
+
 
     socket.on('all-users', (users) => {
         // Connect to existing users
@@ -149,7 +142,7 @@ function connectSocket(username, x, y, z) {
                 createPeer(user.id, user.username, user, true); // Initiator
             }
         });
-        updateRadar(users);
+
     });
 
     socket.on('user-joined', (user) => {
@@ -207,6 +200,15 @@ function connectSocket(username, x, y, z) {
 
         if (myPlayer) {
             isConnectedToMinecraft = true;
+
+            // Sync Position
+            if (myPlayer.location) {
+                myPos = myPlayer.location;
+                updateMyPositionUI();
+                // No emit 'move', backend knows.
+            }
+
+
             applyMinecraftSettings(myPlayer.data);
             updateMinecraftStatus(true);
         } else {
@@ -214,6 +216,22 @@ function connectSocket(username, x, y, z) {
             muteAllAudio();
             updateMinecraftStatus(false);
         }
+
+        // Sync Peer Positions
+        if (data.players) {
+            data.players.forEach(p => {
+                if (p.name !== myUsername) {
+                    // Find peer by username (since socket ID mapping is separate)
+                    // We need to match username -> socketID
+                    const peerId = Object.keys(peers).find(id => peers[id].username === p.name);
+                    if (peerId && p.location) {
+                        peers[peerId].position = p.location;
+                        updateVolume(peerId);
+                    }
+                }
+            });
+        }
+
 
         if (data.config?.maxDistance) {
             MAX_DISTANCE = data.config.maxDistance;
@@ -344,7 +362,7 @@ function updateVolume(id) {
     volume = Math.max(0, Math.min(1, volume));
     peer.gainNode.gain.setTargetAtTime(volume, audioContext.currentTime, 0.1);
 
-    updateRadarVisuals();
+
 }
 
 function updateAllVolumes() {
@@ -398,35 +416,8 @@ function updateList() {
     });
 }
 
-function updateRadar(allUsers) {
-    // Basic initial render (only capable of simple updates in this demo structure)
-    // Real implementation would reactively update all dots
-}
+// Radar functions removed
 
-function updateRadarVisuals() {
-    // Clear old external dots
-    document.querySelectorAll('.other-dot').forEach(el => el.remove());
-
-    const centerX = radarCanvas.clientWidth / 2;
-    const centerY = radarCanvas.clientHeight / 2;
-    const scale = 2; // Pixels per meter
-
-    Object.keys(peers).forEach(id => {
-        const peer = peers[id];
-        const dx = peer.position.x - myPos.x;
-        const dz = peer.position.z - myPos.z; // Map Z to Y-axis on 2D screen
-
-        // Only show if within visual range of radar box (approx)
-        if (Math.abs(dx) * scale < centerX && Math.abs(dz) * scale < centerY) {
-            const dot = document.createElement('div');
-            dot.className = 'dot other-dot';
-            dot.id = `dot-${id}`;
-            dot.style.left = `${centerX + (dx * scale)}px`;
-            dot.style.top = `${centerY + (dz * scale)}px`;
-            radarCanvas.appendChild(dot);
-        }
-    });
-}
 
 // --- Audio Playback Helpers ---
 // Create a hidden audio element for each peer to ensure playback policy is satisfied

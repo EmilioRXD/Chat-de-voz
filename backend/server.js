@@ -26,13 +26,14 @@ io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     // User joins with initial position
+    // User joins (Positions are managed by Minecraft)
     socket.on('join', (userData) => {
         users[socket.id] = {
             id: socket.id,
             username: userData.username,
-            x: userData.x || 0,
-            y: userData.y || 0,
-            z: userData.z || 0
+            x: 0,
+            y: 0,
+            z: 0
         };
 
         // Broadcast list of existing users to the new user
@@ -41,25 +42,10 @@ io.on('connection', (socket) => {
         // Notify others of the new user
         socket.broadcast.emit('user-joined', users[socket.id]);
 
-        console.log(`User ${userData.username} joined at [${userData.x}, ${userData.y}, ${userData.z}]`);
+        console.log(`User ${userData.username} joined.`);
     });
 
-    // User updates position
-    socket.on('move', (position) => {
-        if (users[socket.id]) {
-            users[socket.id].x = position.x;
-            users[socket.id].y = position.y;
-            users[socket.id].z = position.z;
 
-            // Broadcast position update to everyone (could be optimized to only neighbors)
-            io.emit('user-moved', {
-                id: socket.id,
-                x: position.x,
-                y: position.y,
-                z: position.z
-            });
-        }
-    });
 
     // Voice Detection (VAD)
     socket.on('voice-detection', (data) => {
@@ -101,6 +87,19 @@ app.post('/minecraft-data', (req, res) => {
         players: minecraftData.players,
         config: minecraftData.config
     });
+
+    // Actualizar posiciones en el estado del servidor (Server Authority)
+    if (minecraftData.players) {
+        minecraftData.players.forEach(p => {
+            // Buscar socket asociado a este nombre
+            const socketId = Object.keys(users).find(id => users[id].username === p.name);
+            if (socketId && p.location) {
+                users[socketId].x = p.location.x;
+                users[socketId].y = p.location.y;
+                users[socketId].z = p.location.z;
+            }
+        });
+    }
 
     // Preparar respuesta para el addon con estados de voz
     const voiceStatesArray = Array.from(voiceStates.entries()).map(([gamertag, state]) => ({
